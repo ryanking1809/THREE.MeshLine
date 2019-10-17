@@ -84,12 +84,12 @@
 
 	// to support previous api
 	MeshLine.prototype.setGeometry = function(g, c) {
-		this.setFromGeometry(g,c)
+		this.setFromGeometry(g, c);
 	};
 
 	MeshLine.prototype.setVertices = function(vts, wcb) {
 		this._vertices = vts;
-		this.widthCallback = wcb;
+		this.widthCallback = wcb ? wcb : this.widthCallback;
 		this.positions = [];
 		this.counters = [];
 		for (var j = 0; j < vts.length; j++) {
@@ -105,7 +105,7 @@
 
 	MeshLine.prototype.setBufferArray = function(ba, wcb) {
 		this._bufferArray = ba;
-		this.widthCallback = wcb;
+		this.widthCallback = wcb ? wcb : this.widthCallback;
 		this.positions = [];
 		this.counters = [];
 		for (var j = 0; j < ba.length; j += 3) {
@@ -142,6 +142,10 @@
 
 			var vStart = new THREE.Vector3();
 			var vEnd = new THREE.Vector3();
+			var vStartPrevious = new THREE.Vector3();
+			var vEndPrevious = new THREE.Vector3();
+			var vStartNext = new THREE.Vector3();
+			var vEndNext = new THREE.Vector3();
 			var interSegment = new THREE.Vector3();
 			var step = this instanceof THREE.LineSegments ? 2 : 1;
 			var index = geometry.index;
@@ -150,13 +154,81 @@
 			if (index !== null) {
 				var indices = index.array;
 				var positions = attributes.position.array;
+				var previous = attributes.previous.array;
+				var next = attributes.next.array;
+				var sides = attributes.side.array;
+				var width = attributes.width.array;
 
-				for (var i = 0, l = indices.length - 1; i < l; i += step) {
+				for (var i = 0, l = indices.length - 1; i < l; i += 1) {
 					var a = indices[i];
-					var b = indices[i + 1];
+					var b = indices[i + 2]; // next index on same side
 
+					// get points before and after to calculate width direction
 					vStart.fromArray(positions, a * 3);
 					vEnd.fromArray(positions, b * 3);
+					vStartPrevious.fromArray(previous, a * 3);
+					vEndPrevious.fromArray(previous, b * 3);
+					vStartNext.fromArray(next, a * 3);
+					vEndNext.fromArray(next, b * 3);
+
+					// get width and side for each point
+					const widthStart = (width[i] * this.material.lineWidth) / 2;
+					const sideStart = sides[i];
+					const widthEnd =
+						(width[i + 2] * this.material.lineWidth) / 2;
+					const sideEnd = sides[i + 2];
+
+					// https://discourse.threejs.org/t/move-vector3-along-normal-vector-math-help/10305
+					const lineDirectionStart = new THREE.Vector3();
+					const lineNormalStart = new THREE.Vector3();
+					// line between previous and next point
+					const lineDirectionSegmentStart = new THREE.Line3(
+						vStartPrevious,
+						vStartNext
+					);
+					// offset start so we have a direction to move the point
+					const vStartOffset = new THREE.Vector3(
+						vStart.x + sideStart,
+						vStart.y + sideStart,
+						vStart.z
+					);
+					lineDirectionSegmentStart.closestPointToPoint(
+						vStartOffset,
+						true,
+						lineDirectionStart
+					);
+					// get normal
+					lineNormalStart
+						.subVectors(vStartOffset, lineDirectionStart)
+						.normalize();
+					// move point along normal
+					vStart.add(lineNormalStart.multiplyScalar(widthStart));
+
+					// https://discourse.threejs.org/t/move-vector3-along-normal-vector-math-help/10305
+					const lineDirectionEnd = new THREE.Vector3();
+					const lineNormalEnd = new THREE.Vector3();
+					// line between previous and next point
+					const lineDirectionSegmentEnd = new THREE.Line3(
+						vEndPrevious,
+						vEndNext
+					);
+					// offset end so we have a direction to move the point
+					const vEndOffset = new THREE.Vector3(
+						vEnd.x + sideEnd,
+						vEnd.y + sideEnd,
+						vEnd.z
+					);
+					lineDirectionSegmentEnd.closestPointToPoint(
+						vEndOffset,
+						true,
+						lineDirectionEnd
+					);
+					// get normal
+					lineNormalEnd
+						.subVectors(vEndOffset, lineDirectionEnd)
+						.normalize();
+					// move point along normal
+					vEnd.add(lineNormalEnd.multiplyScalar(widthEnd));
 
 					var distSq = ray.distanceSqToSegment(
 						vStart,
@@ -169,14 +241,9 @@
 
 					interRay.applyMatrix4(this.matrixWorld); //Move back to world space for distance calculation
 
-					var distance = raycaster.ray.origin.distanceTo(
-						interRay
-					);
+					var distance = raycaster.ray.origin.distanceTo(interRay);
 
-					if (
-						distance < raycaster.near ||
-						distance > raycaster.far
-					)
+					if (distance < raycaster.near || distance > raycaster.far)
 						continue;
 
 					intersects.push({
@@ -191,51 +258,8 @@
 						faceIndex: null,
 						object: this
 					});
-				}
-			} else {
-				var positions = attributes.position.array;
-
-				for (
-					var i = 0, l = positions.length / 3 - 1;
-					i < l;
-					i += step
-				) {
-					vStart.fromArray(positions, 3 * i);
-					vEnd.fromArray(positions, 3 * i + 3);
-
-					var distSq = ray.distanceSqToSegment(
-						vStart,
-						vEnd,
-						interRay,
-						interSegment
-					);
-
-					if (distSq > precisionSq) continue;
-
-					interRay.applyMatrix4(this.matrixWorld); //Move back to world space for distance calculation
-
-					var distance = raycaster.ray.origin.distanceTo(
-						interRay
-					);
-
-					if (
-						distance < raycaster.near ||
-						distance > raycaster.far
-					)
-						continue;
-
-					intersects.push({
-						distance: distance,
-						// What do we want? intersection point on the ray or on the segment??
-						// point: raycaster.ray.at( distance ),
-						point: interSegment
-							.clone()
-							.applyMatrix4(this.matrixWorld),
-						index: i,
-						face: null,
-						faceIndex: null,
-						object: this
-					});
+					// so we don't get multiple events
+					i = l;
 				}
 			}
 		};
