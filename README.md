@@ -1,3 +1,10 @@
+# This fork has now been merged into [THREE.meshline 1.3.0](https://github.com/spite/THREE.MeshLine)
+
+[THREE.meshline](https://github.com/spite/THREE.MeshLine) code will work exactly the same, however, `meshline.setVertices` and `meshline.vertices` have been renamed to `meshline.setPoints` and `meshline.points`.
+
+---
+---
+
 <p align="center">
 	<a href="https://codesandbox.io/s/react-three-fiber-threejs-meshline-example-vl221"><img width="432" height="240" src="https://imgur.com/mZikTAH.gif" /></a>
 	<a href="https://codesandbox.io/s/threejs-meshline-custom-spring-3-ypkxx"><img width="432" height="240" src="https://imgur.com/g8ts0vJ.gif" /></a>
